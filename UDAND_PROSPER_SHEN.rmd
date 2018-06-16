@@ -1,0 +1,1007 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+#UDAND PROJECT - Explore and Summarize Data
+#DATASET - Prosper Loan Data
+========================================================
+
+#Introduction and Hypothesis
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(gridExtra)
+library(GGally)
+library(scales)
+library(memisc)
+library(RColorBrewer)
+library(tidyverse)
+library(forcats)
+library(corrplot)
+```
+
+```{r echo=FALSE, Load_the_Data}
+# Load the Data
+pld <- read.csv("prosperLoanData.csv")
+
+var <- c("LoanStatus", 
+         "MonthlyLoanPayment", 
+         "LoanOriginalAmount", 
+         "Term", 
+         "BorrowerAPR", 
+         "BorrowerState", 
+         "Occupation", 
+         "ListingCategory..numeric.", 
+         "IsBorrowerHomeowner", 
+         "EmploymentStatus", 
+         "StatedMonthlyIncome", 
+         "AvailableBankcardCredit", 
+         "TotalInquiries", 
+         "CreditScoreRangeUpper", 
+         "CreditScoreRangeLower", 
+         "DebtToIncomeRatio")
+
+pld_UD <- pld[var]
+```
+
+Prosper issues loans to individuals, which are described as "fractional loans", since multiple investors can fund one loan, which minimizes risk due to diversification. The most important question to investors (as always) is what constitutes a good loan to invest in? The null hypothesis can thus be generally summarized as the following:
+
+*"There is no relationship between a variable and a borrower's ability to pay off a loan."*
+
+This report will endeavour to detail and explain the most relevant variables that *do* have an effect on a borrower's ability to pay off a loan (i.e. the one investors should focus on).
+
+For ease of use, we will create a new dataframe with just those relevant variables, and remove all other variables not investigated in this report.
+
+# Univariate Plots Section
+###Loan Status (LS)
+```{r echo=FALSE, Univariate_Plots_LS}
+#Use regex to rename and consolidate PD loans
+levels(pld_UD$LoanStatus) <- gsub("Past(.*)", "Past Due", 
+                                  levels(pld_UD$LoanStatus))
+
+pld_UD$LoanStatus <- factor(pld_UD$LoanStatus, levels = c("Completed", 
+                                                    "FinalPaymentInProgress", 
+                                                    "Current",
+                                                    "Past Due",
+                                                    "Chargedoff",
+                                                    "Defaulted", 
+                                                    "Cancelled"))
+
+#levels(pld_UD$LoanStatus) check levels
+
+ggplot(aes(x = LoanStatus), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), stat = 'count') +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  coord_flip() +
+  ggtitle("Prosper Loan Statuses")
+
+summary(pld_UD$LoanStatus)
+
+pld_UD <- subset(pld_UD, LoanStatus != "Cancelled") #remove cancelled values
+
+pld_UD$LoanStatus <- droplevels(pld_UD$LoanStatus) #drop cancelled level
+
+#levels(pld_UD$LoanStatus) #check Cancelled has been removed
+```
+
+The most important variable, this variable directly states whether a borrower has been repaying a loan.
+
+- **Current** loans have had all payments have been made, at least so far.
+- **Completed** loans have been successfully paid off.
+- **FinalPaymentInProgress** loans are almost completed.
+- **Past Due** loans means one or more payments have not been made on the loan. The original data split Past Due by duration, but since there are a low amount of loans in this status, we will combine them for the purposes of this report. 
+- **ChargedOff** loans have missed four payments (i.e. loan payments not made for  more than 120 days). These loans are now due in full, and the remaining balance is assumed to be lost.
+- **Defaulted** loans are where the borrower is for certain reasons unable to repay the loan, due to delinquency, bankruptcy, death, etc.
+- **Cancelled** loans seem self-explanatory, but the Prosper website does not mention a "Cancelled" Loan Status. I have assumed the loan application was made, but the borrower changed their mind before the loan was fully approved. Since there are only 5 occurrences, it does not make sense to specify a whole category for such a small group. *Thus, Cancelled loans will be ignored for the purposes of this project.*
+
+*To simplify terminology in this report, Complete, FinalPaymentInProgress, and Current loans will be referred to as "Good" loans, while Past Due, Chargedoff, and Defaulted loans will be referred to as "Bad" loans.*
+
+*The amount of Good loans compared to Bad loans will be referred to as the Good-Bad Loan Ratio (GBR)*
+
+###Term (T)
+```{r echo=FALSE, Univariate_Plots_T}
+pld_UD$Term <- factor(pld_UD$Term) #change to factor
+
+ggplot(aes(x = Term), data = pld_UD) +
+  geom_bar(alpha = 0.7, fill = 'red', stat = 'count') +
+  xlab("Term (in months)") +
+  ggtitle("Prosper Loan Terms")
+
+summary(pld_UD$Term)
+```
+
+This graph shows the length of time loans would be paid over. These are all clearly short term loans, with an overwhelming majority having a 36 month term, followed by 60 and 12 month terms.
+
+###Loan Original Amount (LOA)
+```{r echo=FALSE, Univariate_Plots_LOA}
+ggplot(aes(x = LoanOriginalAmount), data = pld_UD) +
+  geom_histogram(alpha = 0.7, binwidth = 2000, fill = 'red', center = 0.5) +
+  scale_x_continuous(breaks = seq(1000, 35000, 4000)) +
+  ggtitle("Prosper Loan Original Amounts") +
+  labs(x = "Loan Original Amounts") 
+
+summary(pld_UD$LoanOriginalAmount)
+```
+
+Here, we can see that the Loan original amounts are mostly ~$5k, but there are peaks at $10k and $15k as well, with smaller peaks at $20k and $25k. A higher LOA could mean a higher GBR.
+
+###MonthlyLoanPayment (MLP)
+```{r echo=FALSE, Univariate_Plots_MLP}
+ggplot(aes(x = MonthlyLoanPayment), data = pld_UD) +
+  geom_histogram(alpha = 0.7, binwidth = 50, fill = 'red', boundary = 0) +
+  scale_x_continuous(breaks = seq(0, 1500, 100)) +
+  coord_cartesian(xlim = c(0, 1500, 100)) +
+  ggtitle("Monthly Loan Payments")
+
+summary(pld_UD$MonthlyLoanPayment)
+```
+
+It could be initially argued that higher loan amounts are harder to pay off, and thus are more likely to not be paid. This graph is positively skewed, with a huge majority of loan payments between $100-200 per month. We can also see a steady amount of monthly loan payment between $200-$400. There are very few loans with $1k+ monthly payments. 
+
+
+###BorrowerAPR (APR)
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_APR}
+ggplot(aes(x = BorrowerAPR), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 0.02) +
+  scale_x_continuous(breaks = seq(0, 0.6, .05)) +
+  ggtitle("Prosper Loan Borrower APRs")
+
+summary(pld_UD$BorrowerAPR)
+```
+
+There are numerous variables that follow the same pattern as BorrowerAPR (e.g. BorrowerRate, LenderYield, etc). However, BorrowerAPR was chosen for analysis as it accounts for more overall expenses *for the borrower*. Higher APR means higher expenses, which usually means higher difficulty of repayment.
+
+The graph shows a fairly uniform distribution, with peaks between 0.15 and 0.20.
+There is an interesting peak just after 0.35 as well.
+
+###BorrowerState (BS)
+```{r echo=FALSE, Univariate_Plots_BS}
+#remove not available label
+pld_UD <- subset(pld_UD, BorrowerState != "")
+
+#drop unused level
+pld_UD$BorrowerState <- droplevels(pld_UD$BorrowerState)
+
+ggplot(aes(fct_infreq(BorrowerState)), data = pld_UD) +
+  geom_bar(alpha = 0.7, fill = 'red') +
+  coord_flip() +
+  labs(title = "Borrower States", x = "State")
+
+summary(pld_UD$BorrowerState)
+```
+
+This graph shows the states borrowers live in. The overwhelming majority of loans were made to borrowers from CA, followed by NY, TX, and FL. Perhaps borrowers from different states have different GBRs?
+
+###Occupation (OCC)
+```{r echo=FALSE, Univariate_Plots_OCC}
+pld_UD <- subset(pld_UD, Occupation != "") #remove not available label
+
+pld_UD$Occupation <- droplevels(pld_UD$Occupation)
+
+ggplot(aes(fct_infreq(Occupation)), data = pld_UD) +
+  geom_bar(alpha = 0.7, fill = 'red') +
+  coord_flip() +
+  theme(aspect.ratio = 10/5) +
+  labs(title = "Borrower Occupation", x = "Occupation")
+```
+
+This graph shows the occupations of the various borrowers. There are numerous categories of occupations, but there are two patterns that can be immediately seen:
+- The most popular Occupation labels are very vague (i.e. "Professional" & "Other")
+- While there are many categories here, there are noticeably low number of loans made out to students of various education levels.
+
+###Listing Category (LC)
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_LC}
+#check class
+#class(pld_UD$ListingCategory..numeric.)
+#integer class, convert to factor before relabelling
+pld_UD$ListingCategory..numeric. <- as.factor(pld_UD$ListingCategory..numeric.)
+
+#create vector with proper labelling
+var_LC <- c("0" = "Not Available", 
+            "1" = "Debt Consolidation", 
+            "2" = "Home Improvement", 
+            "3" = "Business", 
+            "4" = "Personal Loan", 
+            "5" = "Student Use",
+            "6" = "Auto", 
+            "7" = "Other", 
+            "8" = "Baby&Adoption", 
+            "9" = "Boat", 
+            "10" = "Cosmetic Procedure", 
+            "11" = "Engagement Ring", 
+            "12" = "Green Loans", 
+            "13" = "Household Expenses", 
+            "14" = "Large Purchases", 
+            "15" = "Medical/Dental", 
+            "16" = "Motorcycle", 
+            "17" = "RV", 
+            "18" = "Taxes", 
+            "19" = "Vacation", 
+            "20" = "Wedding Loans")
+
+library(plyr)
+#revalue
+pld_UD$ListingCategory..numeric. <- revalue(pld_UD$ListingCategory..numeric., 
+                                            var_LC, warn_missing = FALSE)
+
+detach("package:plyr", unload=TRUE) 
+
+#head(pld_UD$ListingCategory..numeric.) #check
+
+pld_UD <- subset(pld_UD, ListingCategory..numeric. != "Not Available")
+#remove not available label
+
+pld_UD$ListingCategory..numeric. <- droplevels(pld_UD$ListingCategory..numeric.)
+
+ggplot(aes(fct_infreq(factor(ListingCategory..numeric.))), data = pld_UD) +
+  geom_bar(alpha = 0.7, fill = 'red') +
+  coord_flip() +
+  labs(title = "Borrower Listing Category", x = "Listing Category")
+
+summary(pld_UD$ListingCategory..numeric.)
+```
+
+This graph shows the reasons for the loans issued. A huge majority of loans were made for debt consolidation purposes. Perhaps some listing categories are higher risk than others, and have higher rates of nonpayment?
+
+###Homeowner Status (HOS)
+```{r echo=FALSE, Univariate_Plots_HOS}
+summary(pld_UD$IsBorrowerHomeowner)
+```
+There is an almost 50/50 ratio of homeowners to non-homeowners.
+
+###Employment Status (ES)
+```{r echo=FALSE, Univariate_Plots_ES}
+ggplot(aes(fct_infreq(EmploymentStatus)), data = pld_UD) +
+  geom_bar(alpha = 0.7, fill = 'red') +
+  coord_flip() +
+  theme(aspect.ratio = 10/5) +
+  labs(title = "Borrower Employment Status", x = "Employment Status")
+
+summary(pld_UD$EmploymentStatus)
+```
+
+This graph shows the various employment statuses of borrowers. These labels are not very accurate; some labels, including the most frequent occurence ("Employed") do not specify type of employment, whereas the other labels do (i.e. "Full-time", "Self-employed", etc.)
+
+We could definitely surmise that having employment is a big factor in being able to pay off debt. However, a borrower can have still have income and not be employed.
+
+###Stated Monthly Income (SMI)
+```{r echo=FALSE, Univariate_Plots_SMI}
+pld_UD <- subset(pld_UD, 
+                 StatedMonthlyIncome <= quantile(StatedMonthlyIncome, 0.99))
+
+ggplot(aes(x = StatedMonthlyIncome), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 1000, center = 0.5) +
+  labs(title = "Borrower Stated Monthly Income", x = "Monthly Income")
+
+summary(pld_UD$StatedMonthlyIncome)
+```
+
+This graph shows the monthly income of borrowers, which is vital to ascertaining whether a borrower can pay. Here, we can see that there is a positively skewed distribution, peaking around $4000. Only 99% of data is presented in order to eliminate any outliers (the maximum Stated Monthly Income is $175k, which must be a mistake).
+
+###Available Bank Card Credit (ABCC)
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_ABCC}
+abcc1 <- ggplot(aes(x = AvailableBankcardCredit), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 1000) +
+  scale_x_continuous(breaks = seq(0, 150000, 25000)) +
+  coord_cartesian(xlim = c(0, 150000)) +
+  labs(title = "Borrower Available Bankcard Credit", x = "ABCC")
+
+abcc2 <- ggplot(aes(x = AvailableBankcardCredit), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 0.1) +
+  scale_x_log10(breaks = c(0, 1000, 5000, 20000, 150000)) +
+  labs(title = "ABCC with Log10 Transformation", x = "ABCC")
+
+grid.arrange(abcc1, abcc2, ncol = 1)
+
+summary(pld_UD$AvailableBankcardCredit)
+```
+
+This graph shows the total available credit via bank card at the time a borrower's credit profile was pulled. This is also very positively skewed, with the majority of borrowers having a very low amount of bank card credit (between $0 and $25,000). This makes sense, as borrowing funds via credit card is an easier process than going through Prosper loans. The second plot shows a log10 transformation, which reveals a  negatively skewed distribution, peaking around $5k-$10k.
+
+###Total Inquiries (TI)
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_TI}
+ti1 <- ggplot(aes(x = TotalInquiries), 
+              data = subset(pld_UD, !is.na(pld_UD$TotalInquiries))) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 1) +
+  labs(title = "Borrower Total Inquiries", x = "Total Inquiries")
+
+ti2 <- ggplot(aes(x = TotalInquiries), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 0.1) +
+  scale_x_continuous(trans = log10_trans(), breaks = c(1, 5, 10, 20, 50, 100)) +
+  labs(title = "TI with Log10 Transformation", x = "Total Inquiries")
+
+grid.arrange(ti1, ti2, ncol = 1)
+
+summary(pld_UD$TotalInquiries)
+```
+
+This graph shows the total number of inquiries at the time the credit profile was pulled. Inquiries are requests by businesses to check the score, usually for lending purposes. Higher numbers usually means higher risk.
+
+This is very positively skewed, peaking at 2 inquiries. The log10 transformation shows majority of distribution between 1 and 6 inquiries, with a peak at 10 as well. 
+
+###Average Credit Score (ACS)
+```{r echo=FALSE, Univariate_Plots_ACS}
+#create average
+pld_UD$AverageCreditScore <- (pld_UD$CreditScoreRangeUpper + pld_UD$CreditScoreRangeLower)/2
+
+ggplot(aes(x = AverageCreditScore), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 20) +
+  scale_x_continuous(breaks = seq(400, 900, 25)) +
+  coord_cartesian(xlim = c(400, 900)) +
+  labs(title = "Borrower Average Credit Score", x = "Average Credit Score")
+
+summary(pld_UD$AverageCreditScore)
+```
+
+There are multiple various credit ratings used to label borrowers and their risk level. Credit ratings illustrate past borrowing/debt history, and thus can be potentially very relevant to a borrower's ability to pay a loan.
+
+Based on our hypothesis, this report will *focus specifically on AverageCreditScore*, as this is a factor that is somewhat controllable by the borrower's actions, whereas the other variables are scores allocated to the borrowers based on ACS and other factors.
+
+###Debt to Income Ratio (DIR)
+```{r echo=FALSE, message=FALSE, warning=FALSE, Univariate_Plots_DIR}
+dir1 <- ggplot(aes(x = DebtToIncomeRatio), data = pld_UD) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 0.01) +
+  labs(title = "Borrower Debt to Income Ratio", x = "Debt to Income Ratio")
+
+dir2 <- ggplot(aes(x = DebtToIncomeRatio), data = subset(pld_UD, !is.na(DebtToIncomeRatio))) +
+  geom_histogram(alpha = 0.7, fill = 'red', binwidth = 0.1) +
+  scale_x_log10(breaks = c(0, 1, 5, 10)) +
+  labs(title = "DIR with Log10 Transformation", x = "Debt to Income Ratio")
+
+grid.arrange(dir1, dir2, ncol = 1)
+
+summary(pld_UD$DebtToIncomeRatio)
+```
+
+This graph shows the debt to income ratio of the borrower at the time the credit profile was pulled. The log10 plot shows an overwhelming majority of data limited between 0 and 1, but a small amount also at 10.01.
+ 
+ 
+## Univariate Analysis
+### What is the structure of your dataset?
+The Prosper Loan dataset contains 113,937 loans with 81 variables on each loan. Out of these 81 variables, this report focuses on 15, as shown above.
+
+- Majority of Loan Statuses are Current
+- Average LOA is $8337
+- Average MLP is $272.50
+- Majority of loan Terms is 36 months
+- Average APR is 21.8%
+- Majority of borrowers live in CA, followed by TX, FL, and NY
+- Majority of borrowers are have occupation of "Other" and "Professional"
+- Majority of loans used for purpose of debt consolidation
+- There is a fairly even split between borrowers who do and do not own homes
+- Majority of borrowers are employed
+- Average monthly income is $5608
+- Majority of borrowers have a very low amount of ABCC
+- Mean number of total credit inquiries is around 5
+- Average credit score is 695
+- Average DIR is 0.276
+
+### What is/are the main feature(s) of interest in your dataset?
+The main feature of interest is LoanStatus, since it directly relevant to our null hypothesis. *LS is thus the response variable of this report*. The other variables will be analyzed in bivariate and multivariate analyses in combination with LoanStatus to see whether they are explanatory variables i.e. whether they correlate to LoanStatus in some way. 
+
+### What other features in the dataset do you think will help support your investigation into your feature(s) of interest?
+I believe the main secondary features should be related to borrower income (i.e. SMI), since incoming revenue is an indicator of cash flow, which is directly related to the payment of expenses, such as a loan.
+
+However, there may be other features that aren't related to income, but describe the financial behavior of borrowers, and how capable they are of managing finances responsibly. ACS is one such variable, as is ABCC and TI.
+
+### Did you create any new variables from existing variables in the dataset?
+ACS was created using the average of upper and lower credit scores for borrowers.
+
+### Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?
+DIR, TI, and ABCC all have very positively skewed relationships, and thus they had log10 transformations applied in order to reveal any interesting patterns. However, it must be noted that these transfomations remove any values with 0
+
+LS had the "Cancelled" loans removed, as mentioned above. 
+
+BS, OCC, ES, and LC all had either empty level names or levels named "Not Available". These were initially going to be kept, but further bivariate analysis showed that they interfered with correlation tests too much.
+
+SMI also had numerous outliers, so the top 1% of data points were removed.
+
+In all, 19,148 data points were removed.
+
+# Bivariate Plots Section
+###Correlation Matrix Between Quantitative Variables
+```{r echo=FALSE, Bivariate_Plots_corr}
+#colnames(pld_UD) check names
+pld_UD_cor <- pld_UD[c(2, 3, 5, 11, 12, 13, 16, 17)]
+
+corrplot(cor(pld_UD_cor, use = "complete.obs"), method = "number", type = "upper",
+         order = "hclust", tl.col = "black", tl.srt = 45)
+```
+
+This correlation matrix reveals a few interesting correlations between the quantitative secondary variables in this report.
+
+**LOA & MLP** have an extremely strong positive relationship; thus we can see in the matrix that MLP exhibits slightly weaker correlations with other variables than that of LOA. This also means that *MLP can be virtually ignored as an independent variable*, due to its very strong correlation with LOA. *LOA/MLP are positively correlated with SMI, ACS, and ABCC*, as all these factors would be relevant in determining whether the borrower could pay off such a large loan.
+
+**APR** has negative correlations with many variables in varying degrees of strength. While correlation does not imply causation, we can see that the same variables positively correlated with LOA (SMI, ACS, ABCC) are also negatively correlated with APR. 
+
+**ACS** as mentioned above, has a fairly strong positive correlation with ABCC, and a fairly strong negative correlation with APR
+
+**SMI** surprisingly does not have a strong correlation with the other quantitative variables (except LOA/MLP, as noted above). This shows that just 
+
+Now we will begin bivariate plotting with LoanStatus against our other supporting variables.
+
+###LS V LOA/MLP
+```{r echo=FALSE, Bivariate_Plots_LS_LOA_MLP}
+LS_LOA <- ggplot(aes(x = LoanStatus, y = LoanOriginalAmount, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  labs(title = "LS V LOA", x = "Loan Origination Amount") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+LS_MLP <- ggplot(aes(x = LoanStatus, y = MonthlyLoanPayment, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  coord_cartesian(ylim = c(0, 1000)) +
+  labs(title = "LS V MLP", x = "Monthly Loan Payment") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+grid.arrange(LS_LOA, LS_MLP, ncol = 1)
+```
+
+We surmised from the correlation matrix that LOA and MLP are almost identical in nature; these plots reinforces this. Mean LOA/MLP peaks for Current loans at 10k/300 respectively, but otherwise dip down in almost identical patterns for both Completed and Chargedoff/Defaulted Loans. Thus, LOA/MLP *is not* correlated with LS.
+
+###LS V T
+```{r echo=FALSE, Bivariate_Plots_T}
+ggplot(aes(x = Term), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), position = "fill", stat = "count") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .1)) +
+  labs(title = "LS V T", x = "Term")
+```
+
+There is a clear difference in Loan Status between Terms. While the huge majority of loans have been made for 36 months, ~15% of those loans are Bad. By comparison, ~5% of 12 month loans are Bad. and ~8% of 60 month loans are also Bad. 
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_T_CHISQ}
+chisq_t <- chisq.test(table(pld_UD$LoanStatus, factor(pld_UD$Term)))
+
+corrplot(chisq_t$residuals, is.cor = FALSE, method = "square",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5)
+```
+
+The 12M and 60M Term, with higher GBRs, have negative correlations with Bad Loans, while 36M has a weak positive correlation with Bad Loans.
+
+Interestingly, the Chi-square plot also implies that Current loans have strong correlations with 60 month terms, which means shorter term loans are not preferred anymore. However, it does not explain why 12M terms (which have high GBRs) are not used instead. This could be due to the fact that longer terms net more interest (good for investors), and also lower the monthly payments (good for borrowers).  In any case, from these graphs, we argue that Term has a *strong positive correlation* with LS.
+
+###LS V APR
+```{r echo=FALSE, Bivariate_Plots_LS_APR}
+ggplot(aes(x = LoanStatus, y = BorrowerAPR, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  theme(axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank()) +
+  labs(title = "LS V APR")
+
+```
+
+The mean APR mostly follows the median across LS, and while all those values are between 0.2 and 0.3, Good Loans clearly have lower overall mean/median APR (<0.25) than Bad Loans (>0.25).
+
+Thus, we can assert that there is a clear *negative correlation between APR and a borrower's ability to pay*.
+
+###LS V BS
+```{r echo=FALSE, Bivariate_Plots_LS_BS}
+pld_UD$BorrowerState <- fct_infreq(pld_UD$BorrowerState)
+
+ggplot(aes(x = BorrowerState), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), position = "fill", stat = "count") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .25)) +
+  coord_flip()
+```
+
+This graph shows Loans categorized by State, ordered descending by the number of loans, but split into proportions based on Loan Status.
+
+It is telling that the states with the lowest GBRs (i.e. ND, ME, and IA have ratios under 75%) have no current loans. Prosper must no longer services borrowers in those states.
+
+It could be argued that ND, ME, and IA had very few loans anyway, so Prosper simply decided to abandon outreach and service in those states. Looking at the data proves otherwise however. The first univariate BS analysis shows that WY, VT, AK (the next lowest occuring BorrowerStates) all have similarly low numbers of loans. Thus, the *frequency of loans does not factor* into why Prosper has ceased issuing loans to those "bad" states.
+
+Thus, it must be the features of those states (e.g. sluggish economy, bad neighborhoods?) that somehow affect borrowers, since other states do not have a Bad Loan proportion exceeding 25%.
+
+```{r echo=FALSE, Bivariate_Plots_BS_SMI}
+pld_UD_bs <- pld_UD %>%
+            group_by(BorrowerState) %>%
+            summarise(income_mean = mean(StatedMonthlyIncome),
+                      acs_mean = mean(AverageCreditScore),
+                      n = n())
+
+pld_UD_bs$BorrowerState <- factor(pld_UD_bs$BorrowerState, 
+                                     levels =
+                              pld_UD_bs$BorrowerState[order(-pld_UD_bs$acs_mean)])
+
+bs_acs <- ggplot(aes(x = BorrowerState, y = acs_mean), data = (pld_UD_bs)) +
+  geom_point(aes(group = 1)) +
+  geom_line(aes(group = 1)) +
+  coord_flip() +
+  labs(title = "BS V ACS", y = "Average Credit Score")
+
+pld_UD_bs$BorrowerState <- factor(pld_UD_bs$BorrowerState, 
+                                     levels =
+                              pld_UD_bs$BorrowerState[order(-pld_UD_bs$income_mean)])
+
+bs_ami <- ggplot(aes(x = BorrowerState, y = income_mean), data = (pld_UD_bs)) +
+  geom_point(aes(group = 1)) +
+  geom_line(aes(group = 1)) +
+  coord_flip() +
+  labs(title = "BS V SMI", y = "Average Monthly Income")
+
+grid.arrange(bs_acs, bs_ami, ncol = 2)
+```
+
+These first two graphs illustrate the average monthly income and average credit score of each state, ordered descending. We can clearly see that the states with the three lowest incomes (under $4k) and the three lowest ACS are the same "bad" states with no current loans: ND, ME, and IA. After those three though, the order differs.
+
+Descending by SMI, the next three are SD, MD, ID
+Descending by ACS, the next three are ID, AL, AR
+
+The main difference between the plots is that ACS is grouped closely together, with values no more than 70 points apart, whereas SMI can vary by thousands.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_LS_BS_CHISQ}
+chisq_bs <- chisq.test(table(pld_UD$LoanStatus, factor(pld_UD$BorrowerState)))
+
+corrplot(chisq_bs$residuals, is.cor = FALSE, method = "square", 
+        tl.col = "black", tl.srt = 45, tl.cex = 0.5)
+```
+
+Here we look at the ChiSquare plot. It shows varying correlations between BS and LS. As expected, IA, ME, and ND have negative correlations with current loans, and positive correlations with Completed, Chargedoff, and Defaulted loans. Interestingly, we can also see this same pattern with other states, in particular UT, MO, WA, and GA. However, these patterns do not definitively establish that borrowers from these states have a higher chance of bad loans, only that there is a negative correlation with borrowers getting new loans. Some of those states (e.g. IA, ND, UT) also have stronger positive correlations with Completed status than Chargedoff or Defaulted status.
+
+In any case, we can definitely establish that BS has a *strong correlation* with LS.
+
+###LS V OCC
+```{r echo=FALSE, Bivariate_Plots_LS_OCC}
+pld_UD$Occupation <- fct_infreq(pld_UD$Occupation)
+
+ggplot(aes(x = Occupation), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), position = "fill", stat = "count") +
+  coord_flip() +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .2)) +
+  theme(aspect.ratio = 10/5)
+```
+
+This graph shows Loans categorized by Occupation, ordered by the frequency of those occupations, but split into proportions based on Loan Status. The average proportion of Bad Loans appears to be around 20%.
+
+In the univariate analysis, we saw a pattern of Students having low numbers of loans. Here, we can see another pattern: Students (whether of Technical Schools, Community College, College Freshman, Sophomore, Jr, Sr, or Graduates) have low proportions of Current loans. This pattern, combined with the lower GBRs (~30%, with the exception of Seniors and Graduate Students), implies that Prosper is ceasing loans to all Students. 
+
+```{r echo=FALSE, Bivariate_Plots_OCC_SMI}
+pld_UD_occ <- pld_UD %>%
+                group_by(Occupation) %>%
+                summarise(income_mean = mean(StatedMonthlyIncome),
+                          acs_mean = mean(AverageCreditScore),
+                          n = n())
+
+pld_UD_occ$Occupation <- factor(pld_UD_occ$Occupation, 
+                                levels = pld_UD_occ$Occupation[order(-pld_UD_occ$acs_mean)])
+
+occ_acs <- ggplot(aes(x = Occupation, y = acs_mean), data = (pld_UD_occ)) +
+  geom_point(aes(group = 1)) +
+  geom_line(aes(group = 1)) +
+  coord_flip() +
+  labs(title = "BS V ACS", y = "Average Credit Score")
+
+pld_UD_occ$Occupation <- factor(pld_UD_occ$Occupation, 
+                                     levels =
+                              pld_UD_occ$Occupation[order(-pld_UD_occ$income_mean)])
+
+occ_ami <- ggplot(aes(x = Occupation, y = income_mean), data = (pld_UD_occ)) +
+  geom_point(aes(group = 1)) +
+  geom_line(aes(group = 1)) +
+  coord_flip() +
+  labs(title = "BS V SMI", y = "Average Monthly Income")
+
+grid.arrange(occ_acs, occ_ami, ncol = 2)
+```
+
+Orering occupations by average income further reinforces the importance of SMI and ACS in the context of occupation, as students clearly have the lowest amounts, followed by low-skilled jobs such as Teacher's Aide, Waiter/Waitress, Food Service, Nurse's Aide, Clerical, Laborers, etc.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_OCC_CHISQ}
+chisq_occ <- chisq.test(table(pld_UD$LoanStatus, factor(pld_UD$Occupation)))
+
+corrplot(chisq_occ$residuals, is.cor = FALSE, method = "square",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5)
+```
+
+The Chi square plot shows a few more patterns:
+- *Professionals, Computer Programmers, Analysts, Miltary Enlisted/Officers, College Graduates, and College Seniors* actually have strong correlations with paying off loans successfully. This is visualized by blue positive shades in Good loan statuses, and red negative shades in Bad loan statuses.
+- On the other hand, occupations such as *Others, Sales - Commissions, Sales - Retail, Admin Assistants, Clerical, Laborer, Construction, Food Service, Realtors, and other Students* have strong positive correlations in Bad loan statuses, and vice versa.
+
+We can definitely establish that OCC has a *strong correlation* with LS.
+
+###LS V LC
+```{r echo=FALSE, Bivariate_Plots_LS_LC}
+ggplot(aes(fct_infreq(factor(ListingCategory..numeric.))), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), position = "fill", stat = "count") +
+  coord_flip() +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .2)) +
+  theme(aspect.ratio = 10/5)
+```
+Personal and Student Loans are all either completed, charged off, or defaulted. These loans also have significantly lower GBRs (~60-65%). Comparing this with the occupation bivariate analysis above, it makes sense that loans for students are no longer permitted post-2009, since they had the highest levels of nonpayments. It also makes sense that Prosper requires a reason for loans. But what makes these listing categories more risky?
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_LC_CHISQ}
+chisq_lc <- chisq.test(table(pld_UD$LoanStatus, pld_UD$ListingCategory..numeric.))
+
+corrplot(chisq_lc$residuals, is.cor = FALSE, method = "square",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5)
+```
+
+
+In the Chi Square plot, we can clearly see a very strong positive correlation between current Loans and Debt Consolidation, which means that many new borrowers are getting loans for this reason. In contrast, there are strong negative correlations for Current loans for LC values of Personal, Other, Business, Student, and Auto. This implies that these loans are being phased out. Personal and Business loans also have the strongest correlations to Chargedoff and Defaulted LoanStatuses. The other LC levels seem all follow the same pattern, with weak positive correlations towards Current loans. Note however that the LC values of Medical/Dental, Large Purchases, and Household Expenses also have weak positive correlations in Past Due!
+
+We can definitely assert that LC has a *strong correlation* with LS.
+
+###LS V HOS
+```{r echo=FALSE, Bivariate_Plots_LS_HOS}
+ggplot(aes(x = IsBorrowerHomeowner), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), position = "fill", stat = "count") +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .2)) +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1)
+```
+
+We already established that there is little difference in the amount of borrowers who are and are not homeowners; we can see that the difference in proportion of Good/Bad Loans is equally small. Non-homeowners have a *slightly* lower GBR, but the difference is surprisingly negligible. We surmise that homeowner status *does not* correlate with on a borrower's ability to pay off loans.
+
+###LS V ES
+```{r echo=FALSE, Bivariate_Plots_LS_ES}
+ggplot(aes(x = EmploymentStatus), data = pld_UD) +
+  geom_bar(aes(fill = LoanStatus), position = "fill", stat = "count") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(0, 1, .1)) +
+  coord_flip()
+```
+
+Here, we can see huge GBR differences across ES. Retired, Part-time,and Full-time ES levels have the lowest GBRs, and also low proportions of Current loans, which indicates that Prosper is no longer issuing loans to these kinds of borrowers. Borrowers with the Employed level on the other hand have the highest GBR, highest frequency, and highest Current loan proportion.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_LS_ES_CHISQ}
+pld_UD$EmploymentStatus <- droplevels(pld_UD$EmploymentStatus)
+
+#levels(pld_UD$EmploymentStatus) #check levels
+
+chisq_es <- chisq.test(table(pld_UD$LoanStatus, pld_UD$EmploymentStatus))
+
+corrplot(chisq_es$residuals, is.cor = FALSE, method = "square",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5)
+```
+
+The Chi-square plot supports the above assertions. Full-time borrowers in particular have strong correlations with both Completed and Chargedoff/Defaulted LS. Employed is also the only level to have negative correlations with Bad loan statuses.
+
+We can definitely assert that ES has a *strong correlation* with LS.
+
+###LS V SMI
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_LS_SMI}
+ggplot(aes(x = LoanStatus, y = StatedMonthlyIncome, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  ylim(0, quantile(pld_UD$StatedMonthlyIncome, 0.99)) +
+  coord_cartesian(ylim = c(0, 18000)) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+SMI is distributed fairly similarly, though the mean lines are higher than median (most likely due to outliers). We can still see a clear pattern between Good Loans and Bad: Good Loans have higher SMI, and Bad loans have lower SMI. However, the difference is not as much as one would think; the medians and means across all LoanStatuses are actually quite close. Thus, we can assert that there is a *weak positive correlation* between SMI and LS.
+
+###LS V ABCC
+```{r echo=FALSE, Bivariate_Plots_LS_ABCC}
+ggplot(aes(x = LoanStatus, y = AvailableBankcardCredit, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  coord_flip() +
+  coord_cartesian(ylim = c(0, 50000)) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+Here, we can see that ABCC by LS have similar 1st quantile levels. However, Good Loans clearly have higher medians (~5000 v ~2500), and have significantly higher 3rd quantiles (~14-15k v ~8-10k). The mean line also shows a clear dip between Good and Bad Loans.
+
+Thus, we can assert that there is a *positive correlation* between ABCC and LS.
+
+###LS V TI
+```{r echo=FALSE, Bivariate_Plots_LS_TI}
+ggplot(aes(x = LoanStatus, y = TotalInquiries, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  coord_cartesian(ylim = c(0, 20)) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+We can see a clear dramatic change in the average number of TotalInquiries between Good and Bad loans. Good loans are an average of 4-6 inquiries, but ChargedOff and Defaulted loans have much higher averages of around 9 and 11. The
+
+Thus, we can assert that there is a *negative correlation* between TI and LS.
+
+###LS V ACS
+```{r echo=FALSE, Bivariate_Plots_LS_ACS}
+ggplot(aes(x = LoanStatus, y = AverageCreditScore, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  coord_cartesian(ylim = c(600, 900)) +
+  theme(axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank())
+```
+
+Here, we can see a clear difference between ACS by LS. Bad loans have a clear lower median ACS <700, whereas Good loans have a median ACS >700. The mean line closely follows these medians. It is clear that there is a *positive correlation* with ACS and LS.
+
+It is interesting to note that Final, Current, and PastDue loans do not have any borrowers with an ACS below 600. This implies that more recent Prosper loans only accept borrowers with an ACS of >600.
+
+###LS V DIR
+```{r echo=FALSE, message=FALSE, warning=FALSE, Bivariate_Plots_LS_DIR}
+ggplot(aes(x = LoanStatus, y = DebtToIncomeRatio, 
+           fill = LoanStatus), data = pld_UD) +
+  geom_boxplot() +
+  geom_line(aes(group = 1), stat = "summary", 
+            fun.y = mean, linetype = 4, color = "blue") +
+  scale_fill_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme(axis.title.x=element_blank(),
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank())
+```
+
+Here we can also see a difference in average DIR between Good and Bad Loans. While they are all distributed quite similarly, more Bad loans have higher DIRs. It must be noted however that the difference is only in tenths of a percentage. Thus, we can assert that there is a *slight negative correlation* with DIR and LS.
+
+
+## Bivariate Analysis
+### Talk about some of the relationships you observed in this part of the investigation. How did the feature(s) of interest vary with other features in the dataset?
+Our response variable is LS, and thus is the main focus of this report. Plotting LS against other explanatory variables, we were able to establish that strong correlations with the following: 
+
+*LOA/MLP* - Surprisingly, these appeared to have no correlation with LS.
+
+*T* - 36 month terms definitely has the highest correlation to Bad Loans. However, 12 month and 60 month terms both have higher GBRs, despite being on opposite sides of the spectrum. I hypothesize that 12 month terms force borrowers to plan properly due to the short nature of the loan, and 60 month terms give borrowers more time and flexbility, hence both term amounts having high GBRs. It must be noted however, that 12M loans are mostly Completed, whereas 60M are mostly Current. Thus, they cannot be directly compared, as 60M loan data could change in the future.
+
+*OCC* - students and borrowers with low-skilled jobs were correlated with Bad Loans. Interestingly, realtors and commissions-based salespeople are an anomaly, as they also have high rates of Bad loans, despite having higher ACS and SMI.
+
+*BS* - borrowers from ND, ME, and IA were correlated with Bad Loans.
+
+*ES* - borrowers with the "Employed" label had the highest GBR.
+
+*SMI* - positive correlation, Good Loans are associated with higher SMI
+
+*ABCC* - positive correlation, Good Loans are associated with higher ABCC
+
+*TI* - negative correlation, Good Loans are associated with lower TI
+
+*ACS* - positive correlation, Good Loans are associated with higher ACS
+
+*DIR* - negative correlation, Good Loans are associated with lower DIR
+
+Interestingly, home ownership has little effect on LoanStatus. I was theorizing that if a borrower already owned a home, they would be more responsible with debt. This does not seem to be the case.
+
+### Did you observe any interesting relationships between the other features (not the main feature(s) of interest)?
+The initial correlation matrix found correlations between secondary quantitative variables, notably MLP-LOA, ACS-ABCC, APR-ACS. These correlations will be analyzed across LS in the multivariate analysis section below.
+
+OCC and BS were also plotted across average SMI and ACS, and both OCC and BS were found to have strong correlations. Occupations and States with higher incomes and credit scores were far more likely to also have higher GBRs, and vice versa.
+
+### What was the strongest relationship you found?
+There are many strong relationships between LS and the other explanatory variables.  However, I suggest that the strongest relationship was between *LS and ACS*. The qualitative variables do not alone indicate whether a loan will go bad (e.g. the BorrowerState does not directly affect LS, it was found to be SMI and APR); they are linked to other quantitative factors. And out of all the quantitative factors, ACS was chosen, for two reasons:
+
+1. it is a number calculated directly by actions that measure the fiscal responsibility of a borrower
+
+2. there are a minimal number of outliers in this plot compared to others, and yet we can see a clear difference in both mean and median between Good and Bad Loans.
+
+
+# Multivariate Plots Section
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_ACS_APR}
+ggplot(aes(x = AverageCreditScore, y = BorrowerAPR), data = pld_UD) +
+  geom_jitter(aes(color = LoanStatus), alpha = 0.5) +
+  geom_smooth() +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  labs(title = "ACS V APR by LS")
+```
+
+ACS and APR have the strongest negative correlation among all quantitative variables in this report, and thus it is plotted first. Here we can clearly see the negative mean line showing an overall decrease in APR as ACS increases. We can also see there are many Bad Loans clustered among APRs above 0.25 and under 650. However, while it is not extremely clear, we can still see Bad Loans dispersed among Good Loans in higher ACS values, as long as APR is high too.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_ACS_SMI}
+ggplot(aes(x = AverageCreditScore, y = StatedMonthlyIncome), data = pld_UD) +
+  geom_jitter(aes(color = LoanStatus), alpha = 0.5) +
+  geom_smooth() +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  ylim(0, quantile(pld_UD$StatedMonthlyIncome, 0.99)) +
+  labs(title = "ACS V SMI by LS")
+```
+
+We see a similar positive correlation between SMI and ACS. Borrowers with low ACS values typically also have low SMI, and vice versa. However, the dispersion of Bad Loans seems to be distributed more widely than in the ACS-APR scatter plot around ACS values of 650, with Borrower SMI ranging across the whole income spectrum.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_ACS_DIR}
+ggplot(aes(x = AverageCreditScore, y = DebtToIncomeRatio), data = pld_UD) +
+  geom_point(aes(color = LoanStatus), position = "jitter", alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  geom_smooth() +
+  scale_y_log10(breaks = c(0.1, 0.5, 1, 10)) +
+  labs(title = "ACS V Log10-Transformed DIR by LS")
+```
+
+DIR only appears to matter up to 1.0. Beyond that, there are few borrowers, and there appears to be no discernable pattern in GBR. For data points with DIR between 0 and 1, the dispersion of Bad Loans again appears to be distributed fairly widely, with no distinct pattern (excepting the cluster of Bad Loans where ACS < 600). In fact, the mean line actually rises initially, then dips down at higher ACS levels. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_ACS_ABCC}
+ggplot(aes(x = AverageCreditScore, y = AvailableBankcardCredit), 
+       data = pld_UD) +
+  geom_point(aes(color = LoanStatus), position = "jitter", alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  geom_smooth() +
+  scale_y_log10() +
+  labs(title = "ACS V Log10-Transformed ABCC by LS")
+```
+
+Here, we can see the strong positive correleation between ABCC and ACS. Unfortunately, there also appears to be a large spread of Bad loans among all ABCC levels.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_ACS_TI}
+ggplot(aes(x = AverageCreditScore, y = TotalInquiries), data = pld_UD) +
+  geom_jitter(aes(color = LoanStatus), alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_log10() +
+  geom_smooth() +
+  labs(title = "ACS V Log10-Transformed TI by LS")
+```
+
+Here we can begin seeing big differences in LS. While there are Bad Loans for borrowers with ACS < 600, high TI values (> 10) also have high instances of Bad Loans, even when ACS is higher.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_APR_TI}
+ggplot(aes(x = BorrowerAPR, y = TotalInquiries), data = pld_UD) +
+  geom_jitter(aes(color = LoanStatus), alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_log10() +
+  geom_smooth() +
+  labs(title = "APR V Log10-Transformed TI by LS")
+```
+
+Plotting by APR with TI shows the same separation in LS. There are clearly more Bad Loans for borrowers at higher APR levels, but the instances of Bad Loans increases dramatically when TI is >10, even with low APR.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_ACS_APR_T}
+ggplot(aes(x = AverageCreditScore, y = BorrowerAPR), data = pld_UD) +
+  geom_jitter(aes(color = LoanStatus), alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  geom_smooth() +
+  facet_wrap(~Term, ncol = 1) +
+  labs(title = "APR V APR by LS, Faceted by Term")
+```
+
+Faceting by Term also reveals differences in LS. 12M and 60M are mostly Good Loans (Completed and Current, respectively), with a few Bad Loans at higher APR levels. 36M Loans thus clearly hold the majority of Bad Loans, with the majority having higher APR levels.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_APR_ACS_LS_LC}
+ggplot(aes(x = AverageCreditScore, y = BorrowerAPR), data = pld_UD) +
+  geom_point(aes(color = LoanStatus), position = "jitter", alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  geom_smooth() +
+  facet_wrap(~ListingCategory..numeric., ncol = 3) +
+  labs(title = "APR V APR by LS, Faceted by LC")
+```
+
+Faceting by LC affirms the previous findings in the bivariate analysis. Business and Personal loans in particular have high amounts of Bad Loans at higher APR and ACS levels, hence the strong correlations in the Chi-square plot.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Multivariate_Plots_ACS_TI_LS_HOS}
+ggplot(aes(x = AverageCreditScore, y = TotalInquiries), data = pld_UD) +
+  geom_point(aes(color = LoanStatus), position = "jitter", alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_log10() +
+  geom_smooth() +
+  facet_wrap(~IsBorrowerHomeowner, ncol = 1) +
+  labs(title = "TI V ACS by LS, Faceted by HOS")
+```
+
+Here we can see another interesting pattern. We already have discovered that high TI has more Bad Loans, but faceting by HOS reveals that homeowners have more Bad Loans at higher ACS scores. Non-homeowners have the majority of Bad Loans isolated in lower ACS levels. With this plot, we can argue that homeowners actually have a *stronger negative correlation* with LS than non-homeowners, since high ACS does not preclude these borrowers from having Bad Loans.
+
+## Multivariate Analysis
+### Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature(s) of interest?
+Almost all these scatter plots used ACS in the X axis, and thus we could see a consistent pattern of low GBRs at low ACS scores. Generally speaking, higher ACS would lead to higher GBR. We attempted to see if the Y axis variable would alter the pattern of high ACS borrowers in any meaningful manner.
+
+Many variables that were found to have positive correlations with LS were not quite as distinctive once laid out on a scatterplot. ABCC, DIR, and SMI all had correlations with ACS, but unfortunately there were no clear patterns at higher ACS levels. All the Good and Bad Loans were spread across the spectrum.
+
+The strongest pattern found was with TI. High numbers of inquiries seemed to constantly link with more Bad Loans, no matter the ACS or APR level.
+
+LC and HOS were the only qualitative variables analyzed in this multivariate analysis, mainly because the other variables had far too many factors to plot cleanly. Furthermore, we already 
+
+### Were there any interesting or surprising interactions between features?
+There a few variables that, upon further analysis, did not give the results I was anticipating.
+
+DIR was a surprise. Logically it would make sense that higher DIR would be linked to low ACS (as initially hypothesized in the bivariate analysis), thus creating a linear model. However, mean DIR actually rises at low ACS levels, then stablizes at 0.5, before dipping back down at high ACS levels. At first I thought that the log10 transformation removed too many variables, thus changing the correlation pattern, but removing the log10 showed the same pattern. I believe my incorrect hypothesis was due to a visual misrepresentation of the bivariate analysis, as all the LoanStatuses were distributed very similarly, with differences being only in tenths of a percent.
+
+SMI and ABCC was also unexpected. We would normally assume that borrowers with higher income and more credit would typically have a lower amount of Bad Loans, but this assumption looks to be wrong. Higher income and bank credit does not mean a borrower will pay a loan off successfully.
+
+HOS was also a surprise variable. At first, I expected it to have a big impact, but the bivariate analysis presented similar GBRs for borrowers, regardless of home ownership. However, cross referencing with ACS and TI shows that borrowers with homes actually had *Bad Loans at higher ACS and TI numbers*, whereas the majority of Bad Loans for non-homeowners were mostly limited to *low ACS* and high TI numbers.  Perhaps homeowners in all credit score ranges would be more inclined to make more inquiries for whatever reason, maybe to purchase more homes, or participate in other investing activities.
+
+------
+
+# Final Plots and Summary
+### Plot One
+###Chi-Square Plot - LoanStatus V ListingCategory
+```{r echo=FALSE, message=FALSE, warning=FALSE, Plot_One}
+corrplot(chisq_lc$residuals, is.cor = FALSE, method = "square",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5)
+```
+
+### Description One
+There were many Chi-square plots created in this report. They are simple, and clearly visualize relationships between variables. I chose the LC Chi-square plot over other qualititative variables specifically for the same reason I chose ACS as the primary quantitative variable: *it reflects the fiscal responsibility of a borrower.* This cannot be said for BS, ES, and OCC, the other qualitative variables.
+
+Borrowers getting a Loan for Debt Reconciliation are interesting in paying down their loans and having a potentially lower interest rate. This implies that they are more responsible with their finances than someone getting a Personal Loan, which could cover anything from helping a friend to making an unnecessary purchase. We can see that "Other", Personal and Business Loans are more likely to be Bad Loans, due to their uncertain and riskier nature.
+
+### Plot Two
+```{r echo=FALSE, message=FALSE, warning=FALSE, Plot_Two}
+ggplot(aes(x = AverageCreditScore, y = BorrowerAPR), data = pld_UD) +
+  geom_jitter(aes(color = LoanStatus), alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  geom_smooth() +
+  facet_wrap(~Term, ncol = 1) +
+  labs(title = "ACS V APR by LS, Faceted by Term")
+```
+
+### Description Two
+In this plot we can clearly see three main conclusions gleaned from the univariate and bivariate analyses:
+
+1. ACS's positive correlation with LS - the higher the credit score, the higher the amount of Good Loans (and consequently the lower the amount of Bad Loans)
+
+2. APR's negative correlation with LS- higher APR leads to less Good Loans (and consequently more Bad Loans). Note that Bad Loans do exist at higher ACS levels when APR is also high.
+
+3. Term's effect on LS
+  - 12M Loans are mostly Completed
+  - 60M Loans are mostly Current
+  - most Bad Loans have a 36M length
+
+### Plot Three
+```{r echo=FALSE, message=FALSE, warning=FALSE, Plot_Three}
+ggplot(aes(x = AverageCreditScore, y = TotalInquiries), data = pld_UD) +
+  geom_point(aes(color = LoanStatus), position = "jitter", alpha = 0.5) +
+  scale_color_brewer(type = 'div',palette = 'RdYlGn', direction = -1) +
+  scale_y_log10() +
+  geom_smooth() +
+  facet_wrap(~IsBorrowerHomeowner, ncol = 1) +
+  labs(title = "ACS V TI by LS, Faceted by HOS")
+```
+
+### Description Three
+In this plot we can clearly see three main conclusions gleaned from the univariate and bivariate analyses:
+
+1. TI's negative correlation with LS - more inquiries generally means less Good Loans (and consequently more Bad Loans)
+
+2. APR's negative correlation with LS- higher APR leads to less Good Loans (and consequently more Bad Loans). Note that Bad Loans do exist at higher ACS levels when APR is also high.
+
+3. HOS's effect on LS:
+  - fairly equal number of borrowers who do and do not own homes
+  - Homeowners tend to have more Bad Loans with high TI values *despite* high ACS
+  
+Thus, we can conclude that *Homeowners with high TI numbers* have a *stronger negative correlation* with LS than Non-Homeowners.
+
+------
+
+# Reflection
+The null hypothesis was stated in the beginning of this report.
+
+*"There is no relationship between a variable and a borrower's ability to pay off a loan."*
+
+My report clearly illustrates that this is not the case. We actually have the opposite problem, where there are *infinitely many* relationships between variables and a borrower's ability to pay off a loan. The Prosper dataset was a very interesting project to tackle, with many possible avenues. I am happy with my choice of analyzing what factors would affect a borrower's ability to pay back debt, since this is an issue that 99% of people in the world would encounter in their life.
+
+Isolating the variables analyzed in this report is a very important first step which I initially failed to take. In doing so, I was constantly distracted with other factors that should not have been a part of this project. I am still not sure if using LoanStatus as the response variable was a mistake, due to its qualitative nature. Perhaps using quantitative variables would provide more concrete or accurate conclusions.
+
+On the other hand, the Chi-square plots appeared to very clearly define which factors were more relevant, and which were not. This was especially helpful where there were large numbers of qualitative factors (e.g. BS, LC). However, it is difficult to reorder chi-square plots, especially by correlation.
+
+I feel that I correctly chose most variables, but one I should pursue next time is LoanCreationYear. Loans were not issued out equally, and Prosper clearly adjusted their policies as the company matured. Perhaps filtering by year would be an interesting direction to take the report, since what financially affected people 10 years ago would be somewhat different from the financial issues people face today.
