@@ -1,7 +1,7 @@
 # Readme - Prosper Exploratory Data Analysis
 
 ## Introduction
-This project uses Prosper Loan data, which includes information on 113,937 loans with 81 variables each. The aim of discovering whether there are correlations between a variable (or multiple variables) and a person defaulting on a short term loan.
+This project uses Prosper Loan data, which includes information on 113,937 loans with 81 variables each. The overarching goal is to discover whether there are correlations between any variable (or multiple variables) and a person defaulting on a short term loan.
 
 ## Installation
 1. Clone my repository and the Udacity Intro to Machine Learning repository using Github Desktop or Terminal.
